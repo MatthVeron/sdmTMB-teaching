@@ -1,0 +1,30 @@
+# Topics to make sure we hit based on feedback:
+
+Use with fisheries dependent data. Can we? With what caveats?
+Use of environmental covariates
+Use with tracking datasets?
+Wrapping head around why we need the mesh + SPDE
+Model diagnostics and validation
+Integrating data types
+Common problems when starting out
+Is there likely a need for High Performance Computing with sdmTMB for fitting and/or simulation?
+
+# New stuff to get in somewhere in existing slides:
+- AICc
+- Generalized gamma
+- Poisson-link models?
+
+- prediction grids?
+
+- types of residuals
+
+# New slides:
+
+- Data integration
+  - What it means
+  - Things to worry about
+  - Basic catchability stuff
+
+- Multivariate
+  - What you can do with sdmTMB
+  - When to move to tinyVAST
