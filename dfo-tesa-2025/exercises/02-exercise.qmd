@@ -11,9 +11,11 @@ execute:
 
 -   Practice fitting a basic spatiotemporal model.
 -   Gain experience using cross validation for model selection.
+-   Gain experience with anistropy.
 -   Understand how to inspect the model output.
 -   Practice predicting from the model on new data and making visualizations of those predictions.
 -   Gain familiarity with fitting and interpreting different random field structures.
+-   Try fitting a spatially varying coefficient model.
 
 ```{r, message=FALSE, warning=FALSE}
 #| echo=FALSE
@@ -32,7 +34,7 @@ theme_set(theme_light())
 We will work with data representing North Pacific Spiny Dogfish in the West Coast Vancouver Island synoptic trawl survey.
 
 ```{r}
-dat <- readRDS(here::here("dfo-tesa-2023/data/wcvi-dogfish.rds"))
+dat <- readRDS(here::here("dfo-tesa-2025/data/wcvi-dogfish.rds"))
 ```
 
 ```{r}
@@ -82,7 +84,7 @@ dat$year_factor <- as.factor(dat$year)
 
 # Constructing a mesh
 
-We start by constructing an SPDE mesh with INLA. This creates some matrices that are used internally when fitting the model. We will use the shortcut function `make_mesh()` and use a cutoff (minimum triangle length of 10 km). Note: this is the only parameter that can be changed in `make_mesh()` but more control over mesh arguments can be done with INLA (`inla.mesh.2d()`).
+We start by constructing an SPDE mesh with fmesher. This creates some matrices that are used internally when fitting the model. We will use the shortcut function `make_mesh()` and use a cutoff (minimum triangle length of 10 km). 
 
 ```{r}
 mesh <- make_mesh(dat, xy_cols = c("X", "Y"), cutoff = 10)
@@ -100,11 +102,13 @@ ggplot() + inlabru::gg(mesh$mesh) + coord_fixed() +
 
 # Fitting a spatial model
 
-The most basic model we could fit would be a model with a single spatial random field, and no covariates. This is similar to what we were fitting yesterday. Using `silent = FALSE` lets us see what is happening, but it's awkward when running code in Rmd/Quarto chunks (with the default RStudio setting to 'Show output inline for all R Markdown document') so we will comment it out in most cases here. But it is a good idea to use it if models are running slowly or not converging to monitor progress.
+The most basic model we could fit would be a model with a single spatial random field, and no covariates. We fit that yesterday. Here, we will introduce a depth covariate. 
+
+Using `silent = FALSE` lets us see what is happening, but it's awkward when running code in Rmd/Quarto chunks (with the default RStudio setting to 'Show output inline for all R Markdown document') so we will comment it out in most cases here. But it is a good idea to use it if models are running slowly or not converging to monitor progress.
 
 ```{r, results='hide'}
 fit_spatial <- sdmTMB(
-  density ~ 1, # intercept only
+  density ~ poly(log_depth, 2), # quadratic depth effect
   data = dat,  
   family = tweedie(link = "log"),
   mesh = mesh,
@@ -117,17 +121,9 @@ fit_spatial <- sdmTMB(
 sanity(fit_spatial)
 ```
 
-Did it have trouble? If so, try an extra optimization run and see if that's sufficient:
-
-```{r}
-fit_spatial <- run_extra_optimization(fit_spatial)
-sanity(fit_spatial)
-```
-
 ```{r}
 fit_spatial
 ```
-
 
 ### Exercise:
 
@@ -137,64 +133,122 @@ A refresher from yesterday:
 2.  What is the 'Spatial SD' in the output?
 3.  What is the 'Dispersion parameter' in the output?
 
-# Cross validation
+# Anisotropy and cross validation
 
-We can consider whether including a quadratic effect of depth improves model predictions. AIC would be one way to compare models but is not ideal when we're dealing with mixed effects models---particularly when the random effects are contributing substantially to our predictions. For simpler models, AIC has a nice property of approximating Leave One Out Cross Validation (LOOCV) so results should be roughly similar.
+We can consider whether including anisotropy improves model predictions. This lets the correlation decay differently depending on direction. 
 
-We will demonstrate cross validation using the built-in `sdmTMB_cv()` function. As a refresher for cross validation,
+First, let's fit out possible anisotropic model to make sure it can be estimated:
+
+```{r}
+fit_aniso <- sdmTMB(
+  density ~ poly(log_depth, 2), # quadratic depth effect
+  data = dat,  
+  family = tweedie(link = "log"),
+  mesh = mesh,
+  spatial = "on",
+  anisotropy = TRUE
+)
+```
+
+Anisotropic range is best examined graphically:
+
+```{r}
+plot_anisotropy(fit_aniso)
+```
+
+## Exercise:
+
+1.  What is this plot showing? See `?plot_anisotropy`
+2.  Does this make sense here? Think about the geography of west coast of Vancouver Island.
+
+AIC would be one way to compare models but is not ideal when we're dealing with mixed effects models---particularly when the random effects are contributing substantially to our predictions.
+
+We can check the AIC of the 2 models:
+
+```{r}
+AIC(fit_spatial, fit_aniso)
+```
+
+We will demonstrate cross validation using the built-in `sdmTMB_cv()` function. As a refresher for cross validation:
 
 1.  The data are divided into `k` folds
 2.  In turn, each fold is used as the test or validation dataset, with the remaining data used to fit the model
 3.  Measures of predictive accuracy are calculated for each fold, and finally across the full dataset
 4.  The number of folds, and how folds are selected can affect results
+5.  We can manually set the folds if we'd like. Here will divide the data by year.
 
 ```{r}
-# optional for parallel processing (just FYI)
-# library(future)
-# plan(multisession)
+# optional for parallel processing
+library(future)
+plan(multisession)
 
-set.seed(1) # for consistent cross validation folds
-cv_intercept <- sdmTMB_cv(
-  density ~ 1, # intercept only
+dat$folds <- as.numeric(factor(dat$year))
+unique(dat$folds)
+
+cv_anisotropic <- sdmTMB_cv(
+  density ~ poly(log_depth, 2),
   data = dat,  
-  family = tweedie(link = "log"),
-  mesh = mesh,
-  k_folds = 8
+  spatial = "on",
+  anisotropy = TRUE, #<
+  family = tweedie(),
+  fold_ids = dat$folds,
+  mesh = mesh
 )
 
-set.seed(1) # for consistent cross validation folds
-cv_depth <- sdmTMB_cv(
-  density ~ poly(log_depth, 2), # quadratic effect of log depth
+cv_isotropic <- sdmTMB_cv(
+  density ~ poly(log_depth, 2),
   data = dat,  
-  family = tweedie(link = "log"),
+  spatial = "on",
+  family = tweedie(),
+  fold_ids = dat$folds,
   mesh = mesh,
-  k_folds = 8
 )
 ```
 
-These are the expected log predictive densities (ELPD) for each fold. Larger (more positive) values are better. This gives us an idea of the variance of these values across folds.
+These are the log predictive densities for each fold. Larger (more positive) values are better. This gives us an idea of the variance of these values across folds.
 
 ```{r}
-cv_intercept$fold_elpd
-cv_depth$fold_elpd
+cv_anisotropic$fold_loglik
+cv_isotropic$fold_loglik
 
 # check each fold between the two models:
-cv_depth$fold_elpd - cv_intercept$fold_elpd
+cv_anisotropic$fold_loglik - cv_isotropic$fold_loglik
 ```
 
-These are the expected log predictive densities for all left out data combined. 
+These are the expected log predictive densities for all left-out data combined.
 
 ```{r}
-cv_intercept$elpd
-cv_depth$elpd
+cv_anisotropic$sum_loglik
+cv_isotropic$sum_loglik
+```
+
+We could look at the standard error on the difference across folds as one way to assess whether this is a meaningful difference.
+
+```{r}
+cv_results <- data.frame(
+  model = rep(c("anisotropic", "isotropic"), each = length(unique(dat$folds))),
+  loglik = c(cv_anisotropic$fold_loglik, cv_isotropic$fold_loglik)
+)
+
+cv_results |>
+  group_by(model) |>
+  summarise(
+    sum_loglik = sum(loglik),
+    se = sqrt(n()) * sd(loglik)
+  )
+
+# Difference in sum log-likelihood with SE
+lpd_diff <- cv_anisotropic$sum_loglik - cv_isotropic$sum_loglik
+se_diff <- sqrt(8) * sd(cv_anisotropic$fold_loglik - cv_isotropic$fold_loglik)
+cat("LPD difference (anisotropic - isotropic):", round(elpd_diff, 2), "±", round(se_diff, 2), "\n")
 ```
 
 ### Exercise:
 
-1.  Which model does ELPD suggest has better out-of-sample predictive performance?
+1.  Which model does LPD suggest has better out-of-sample predictive performance?
 2.  How consistent is that result across folds?
-3.  Try changing the 'seed' value above (same value for both). Is the same model selected?
-4.  This cross validation created the folds randomly. Which argument in `?sdmTMB_cv` would let you assign IDs to the folds to create spatially blocked cross validation?
+4.  We assigned folds. What happens if you don't do this? Why might you want to set the random seed first?
+5.  How else could you use the folds?
 
 We won't dwell on this model here for the sake of time, but in practice we would stop, inspect, and understand this model before progressing to a spatiotemporal model.
 
@@ -212,6 +266,7 @@ fit <- sdmTMB(
   data = dat,
   family = tweedie(link = "log"),
   mesh = mesh,
+  anisotropy = TRUE,
   spatial = "on",
   spatiotemporal = "iid", #< new
   time = "year", #< new
@@ -277,7 +332,7 @@ visreg::visreg(fit, xvar = "log_depth")
 visreg::visreg(fit, xvar = "log_depth", scale = "response")
 ```
 
-Third, we could use the `ggeffects` package, which can be used to show the marginal effects of predictors (averaging over all other covariates rather than using a single fixed value). For more details see the [visualizing marginal effects vignette](https://pbs-assess.github.io/sdmTMB/articles/ggeffects.html). *Note that won't yet work with smoother `s()` terms*, but will soon work with the similar `ggeffects::ggpredict()` .
+Third, we could use the `ggeffects` package, which can be used to show the marginal effects of predictors (averaging over all other covariates rather than using a single fixed value). For more details see the [visualizing marginal effects vignette](https://pbs-assess.github.io/sdmTMB/articles/ggeffects.html). *Note that this won't yet work with smoother `s()` terms*, but will work with the similar `ggeffects::ggpredict()` .
 
 ```{r}
 g <- ggeffects::ggeffect(fit, "log_depth [3.5:6.7 by=0.05]")
@@ -297,7 +352,7 @@ wcvi_grid$log_depth <- log(wcvi_grid$depth)
 We can use this fancy line of purrr code to expand our grid to every year we want to predict on:
 
 ```{r}
-grid <- purrr::map_dfr(unique(dat$year), ~ tibble(wcvi_grid, year = .x))
+grid <- sdmTMB::replicate_df(wcvi_grid, "year", unique(dat$year))
 grid$year_factor <- as.factor(grid$year)
 head(grid)
 ```
@@ -352,7 +407,7 @@ ggplot(p, aes(X, Y, fill = exp(est))) +
   scale_fill_viridis_c(trans = "log10")
 ```
 
-## Exercise:
+### Exercise:
 
 1.  Step through each of the plots above and discuss what each represents.
 
@@ -361,7 +416,7 @@ ggplot(p, aes(X, Y, fill = exp(est))) +
 We can calculate randomized quantile residuals with the `residuals.sdmTMB()` function.
 
 ```{r}
-dat$resid <- residuals(fit)
+dat$resid <- residuals(fit, type = "mle-mvn")
 ```
 
 We can plot those residuals spatially:
@@ -386,26 +441,13 @@ qqnorm(dat$resid)
 qqline(dat$resid)
 ```
 
-These don't look great, *but*, this is largely a function of error from the Laplace approximation on the random effects (see [Thygesen et al. 2017](https://doi.org/10.1007/s10651-017-0372-4)). MCMC-based are a better approach, but are slower. The following line of code will take a while to run and will require rstan and tmbstan. You may *not* want to run it. There's a whole vignette on residual checking with sdmTMB here: <https://pbs-assess.github.io/sdmTMB/articles/residual-checking.html> It's an active area of research.
-
-```{r, eval=FALSE}
-# warning: will take a couple minutes and requires rstan!
-# see ?residuals.sdmTMB
-set.seed(1)
-dat$resid_mcmc <- residuals(
-  fit, 
-  type = "mle-mcmc", 
-  mcmc_iter = 201, 
-  mcmc_warmup = 200
-)
-qqnorm(dat$resid_mcmc)
-qqline(dat$resid_mcmc)
-```
+There's a whole vignette on residual checking with sdmTMB here: <https://pbs-assess.github.io/sdmTMB/articles/residual-checking.html>
 
 We can simulate new observations from the model and check properties of the simulation compared to the observed data:
 
 ```{r}
-s <- simulate(fit, nsim = 100)
+set.seed(1)
+s <- simulate(fit, nsim = 200, type = "mle-mvn")
 ```
 
 ```{r}
@@ -418,62 +460,26 @@ hist(s, xlim = c(0, 30), breaks = 200, freq = FALSE)
 hist(dat$density, xlim = c(0, 30), breaks = 200, freq = FALSE)
 ```
 
+We could also use these with the DHARMa package:
+
+```{r}
+dharma_residuals(s, fit)
+```
+
 ## Exercise:
 
 1.  What is the difference between `sdmTMB_simulate()` and `simulate.sdmTMB()`?
 
-# Fitting an anisotropic model
-
-## Exercise:
-
-1.  What is anisotropy and why might you want to allow for it?
-2.  What is the default setting for `anisotropy` in `sdmTMB`?
-
-We will re-fit our model with REML so we can use AIC to compare models with different random effect structures (although not strictly necessary). We will then fit a model with anisotropy enabled. We will use the handy method `update()` here, but we could also re-write the whole `sdmTMB()` function call each time.
-
-```{r, results='hide'}
-fit_reml <- update(fit, reml = TRUE)
-fit_aniso <- update(fit, reml = TRUE, anisotropy = TRUE)
-```
-
-```{r}
-sanity(fit_reml)
-sanity(fit_aniso)
-```
-
-```{r}
-fit_reml
-fit_aniso
-```
-
-Anisotropic range is best examined graphically:
-
-```{r}
-plot_anisotropy(fit_aniso)
-```
-
-## Exercise:
-
-1.  What is this plot showing? See `?plot_anisotropy`
-2.  Does this make sense here? Think about the geography of West Coast Vancouver Island.
-
-We can check the AIC of the 2 models:
-
-```{r}
-AIC(fit_reml, fit_aniso)
-```
-
-## Exercise:
-
-1.  What does AIC suggest? (Keep in mind AIC is a bit suspect for these kinds of models with correlated random effects, often selects more complicated models, and shouldn't be taken *too* seriously.)
-2.  What are some other ways we could compare the models?
-
 # Fitting an AR(1) fields model
 
-An alternative model would use AR(1) (first order autoregressive) correlated fields with or without spatial fields. We'll fit a version without spatial fields.
+An alternative model would use AR(1) (first order autoregressive) correlated fields with or without spatial fields.
 
 ```{r, results='hide', warning=FALSE, message=FALSE}
-fit_ar1 <- update(fit_reml, spatial = "off", spatiotemporal = "ar1", anisotropy = TRUE)
+fit_ar1 <- update(
+  fit, 
+  spatial = "off", #< left of on purpose to illustrate something below; normally leave on
+  spatiotemporal = "ar1"
+)
 ```
 
 ```{r}
@@ -482,7 +488,7 @@ fit_ar1
 ```
 
 ```{r}
-AIC(fit_aniso, fit_ar1)
+AIC(fit, fit_ar1)
 ```
 
 ```{r}
@@ -494,11 +500,12 @@ tidy(fit_ar1, "ran_pars", conf.int = TRUE)
 1.  What is the estimated random field AR(1) correlation value (`rho`)? (Hint: see `print(fit_ar1)` and the `tidy()` line above.)
 2.  What does this mean? Does this make sense ecologically?
 3.  What is a subtle reason why you might want to include spatial fields if you're using AR(1) fields? (Hint: think about the first time step and what the random field SD represents in the AR(1) process.)
+4.  We didn't specify `extra_time` what are the implications of that?
 
-Let's plot the predictions from our two anisotropic models:
+Let's plot the predictions from our two models:
 
 ```{r}
-p_iid <- predict(fit_aniso, newdata = grid)
+p_iid <- predict(fit, newdata = grid)
 p_ar1 <- predict(fit_ar1, newdata = grid)
 ```
 
@@ -580,11 +587,41 @@ g2 <- filter(p_ar1, year %in% yrs) |>
 cowplot::plot_grid(g1, g2, nrow = 2, align = "v")
 ```
 
-## Exercise:
+### Exercise:
 
 1.  How similar do the predictions look? Is there a big difference in the end?
 
 2.  How could we pick between these models?
+
+# Spatially varying coefficients
+
+Let's try fitting a spatially varying coefficient (SVC) for year. If year is our covariate, we can interpret this as a local proportional change per year.
+
+We'll start by (roughly) centering our year predictor to make it more computationally stable.
+
+```{r}
+dat$year_centered <- dat$year - 2012
+fit_svc <- sdmTMB(
+  density ~ year_centered,
+  data = dat,  
+  family = tweedie(link = "log"),
+  mesh = mesh,
+  spatial = "on",
+  spatial_varying = ~ year_centered, #<
+  # silent = FALSE
+)
+
+grid$year_centered <- grid$year - 2012
+p_svc <- predict(fit_svc, newdata = grid)
+ggplot(p_svc, aes(X, Y, fill = exp(est))) +
+  geom_raster() +
+  scale_fill_gradient2(trans = "log10") +
+  coord_fixed()
+```
+
+## Exercise:
+
+1.  What are we looking at and what does it mean?
 
 # Bonus
 
@@ -604,9 +641,11 @@ fit2 <- sdmTMB(
   spatial = "on",
   spatiotemporal = "iid",
   time = "year",
+  anisotropy = TRUE,
   # silent = FALSE,
-  # share_range =  # exercise
+  # share_range =   # exercise
 )
+# plot_anisotropy(fit2)
 ```
 
 ```{r}
@@ -615,24 +654,3 @@ fit2
 tidy(fit2, effects = "ran_pars", conf.int = TRUE)
 ```
 
-```{r, results='hide'}
-fit3 <- sdmTMB(
-  density ~ 0 + year_factor + poly(log_depth, 2),
-  data = dat,
-  family = tweedie(link = "log"),
-  mesh = mesh,
-  spatial = "on",
-  spatiotemporal = "iid",
-  time = "year",
-  # silent = FALSE,
-  # share_range = , # exercise
-  # anisotropy =  # exercise
-)
-```
-
-```{r}
-sanity(fit3)
-fit3
-tidy(fit3, effects = "ran_pars", conf.int = TRUE)
-# plot_anisotropy(fit3) # uncomment this
-```

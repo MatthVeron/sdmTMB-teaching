@@ -29,7 +29,7 @@ theme_set(theme_light())
 We will continue working with the North Pacific Spiny Dogfish in the West Coast Vancouver Island synoptic trawl survey.
 
 ```{r}
-dat <- readRDS(here::here("dfo-tesa-2023/data/wcvi-dogfish.rds"))
+dat <- readRDS(here::here("dfo-tesa-2025/data/wcvi-dogfish.rds"))
 ```
 
 ```{r}
@@ -72,13 +72,6 @@ fit_tweedie <- sdmTMB(
 ```
 
 ```{r}
-sanity(fit_tweedie)
-```
-
-Did it have trouble? There are many reasons a model can suddenly have difficulty converging. What has changed this time? We only tried anisotropy with the AR1 model yesterday, and we may have used a different cutoff for our mesh. Given the only problem we have is a gradient issue (indicating the model hasn't quite converged), try an extra optimization run (with a different optimizer) and see if that's sufficient:
-
-```{r}
-fit_tweedie <- run_extra_optimization(fit_tweedie, newton_loops = 1)
 sanity(fit_tweedie)
 ```
 
@@ -202,7 +195,7 @@ fit <- fit_dg
 We can calculate randomized quantile residuals with the `residuals.sdmTMB()` function and plot them against possible confounding covariates, whether they were included in the model or not:
 
 ```{r}
-dat$resid <- residuals(fit)
+dat$resid <- residuals(fit, type = "mle-mvn")
 
 ggplot(dat, aes(log_depth, resid)) +
   geom_point(size = 0.5)
@@ -218,9 +211,33 @@ ggplot(dat, aes(X, Y, colour = resid)) +
   scale_colour_gradient2()
 ```
 
+### Exercise
+
+1. Do these residuals represent the full model or just one linear predictor? 
+2. If just one, how would we look at the other linear predictor?
+
+## Checking simulation-based residuals
+
+```{r}
+set.seed(123)
+s <- simulate(fit, nsim = 300)
+dharma_residuals(s, fit)
+```
+
+### Exercise
+
+1. What did we just do wrong here? Did we get a warning message? How does our QQ plot look?
+
+```{r}
+set.seed(123)
+s <- simulate(fit, nsim = 300, type = "mle-mvn")
+dharma_residuals(s, fit)
+```
+
+
 ## Covariate effects
 
-Now, let's inspect the covariate effects of our delta model. The easiest way to check the relationships within each model is to use the sdmTMB function `visreg_delta()` to pass each component model separately to visreg. The argument `type = "conditional"` (the default) holds other variables constant at the median for numeric variables and the most common category for factors. The `ggeffects::ggeffect()` function doesn't work with delta models yet.
+Now, let's inspect the covariate effects of our delta model. The easiest way to check the relationships within each model is to use the sdmTMB function `visreg_delta()` to pass each component model separately to visreg. The argument `type = "conditional"` (the default) holds other variables constant at the median for numeric variables and the most common category for factors.
 
 ```{r}
 visreg_delta(fit, xvar = "year_factor", model = 1, type = "conditional")
@@ -242,7 +259,7 @@ visreg_delta(fit, xvar = "log_depth", model = 2, scale = "response")
 First, we need to generate an appropriate prediction grid with all the same time elements as our model data:
 
 ```{r}
-wcvi_grid <- readRDS(here::here("dfo-tesa-2023/data/wcvi-grid.rds"))
+wcvi_grid <- readRDS(here::here("dfo-tesa-2025/data/wcvi-grid.rds"))
 head(wcvi_grid)
 wcvi_grid$log_depth <- log(wcvi_grid$depth)
 grid <- purrr::map_dfr(unique(dat$year), ~ tibble(wcvi_grid, year = .x))
@@ -325,7 +342,7 @@ We can set the area argument to our `cell_area` column in km^2^. In this case th
 
 ```{r}
 p_dg <- predict(fit, newdata = grid, return_tmb_object = TRUE)
-index_dg <- get_index(p_dg, area = grid$cell_area, bias_correct = FALSE)
+index_dg <- get_index(p_dg, area = grid$cell_area, bias_correct = TRUE)
 
 ggplot(index_dg, aes(year, est)) +
   geom_line() +
@@ -338,7 +355,7 @@ Let's see if this index differs from what it would look like using the Tweedie m
 
 ```{r}
 p_tw <- predict(fit_tweedie, newdata = grid, return_tmb_object = TRUE)
-index_tw <- get_index(p_tw, area = grid$cell_area, bias_correct = FALSE)
+index_tw <- get_index(p_tw, area = grid$cell_area, bias_correct = TRUE)
 
 index_dg$Method <- "Delta-gamma"
 index_tw$Method <- "Tweedie"
@@ -351,11 +368,11 @@ bind_rows(index_dg, index_tw) %>%
   ylab("Biomass estimate (tonnes)")
 ```
 
-We used `bias_correction = FALSE` to speed things up, but for any final result you will want to use the bias correction. Let's see how much it changes with the simpler (and therefore faster) Tweedie model.
+What if we had skipped the bias correction?
 
 ```{r}
-index_twc <- get_index(p_tw, area = grid$cell_area, bias_correct = TRUE)
-index_twc$Method <- "Bias correction"
+index_twc <- get_index(p_tw, area = grid$cell_area, bias_correct = FALSE)
+index_twc$Method <- "Tweedie, no bias correction"
 
 bind_rows(index_tw, index_twc) %>%
   ggplot(aes(year, est, fill = Method)) +
