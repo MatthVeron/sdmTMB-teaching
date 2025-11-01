@@ -83,8 +83,9 @@ fit <- sdmTMB(
 # Local trends in cod population density
 
 ```{r plot-zeta}
-qcs_grid$year_scaled <- (qcs_grid$year - mean(pcod$year)) / sd(pcod$year)
-p <- predict(fit, qcs_grid)
+grid <- replicate_df(qcs_grid, "year", unique(pcod$year))
+grid$year_scaled <- (grid$year - mean(pcod$year)) / sd(pcod$year)
+p <- predict(fit, grid)
 p <- dplyr::filter(p, year == 2011) # any year
 ggplot(p, aes(X, Y, fill = zeta_s_year_scaled)) + geom_raster() +
   scale_fill_gradient2()
@@ -153,16 +154,17 @@ Because there does not appear to be much correlation between years, year will be
 
 # Tips and tricks
 
-* Unlike `time_varying`, likely *do* want the same coefficient in the main `formula` effects
+* You likely *do* want the same coefficient in the main `formula` effects
   * `spatial_varying` represents a random field with mean zero
 --
 
 * Predictor should be roughly mean zero and SD of 1 to help with estimation
 --
 
-* Used to be limited to one effect; now no limitations
-
+* You can have multiple SVCs
 --
+
+* Creative use of factors in the `spatial_varying` argument lets you fit multiple species or age categories at once
 
 See vignette: [Fitting spatial trend models with sdmTMB](https://pbs-assess.github.io/sdmTMB/articles/spatial-trend-models.html)
 
