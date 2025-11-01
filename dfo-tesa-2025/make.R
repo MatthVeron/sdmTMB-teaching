@@ -4,6 +4,9 @@ folder <- "dfo-tesa-2025"
 files <- list.files(folder, pattern = "\\.Rmd$")
 files <- gsub("\\.Rmd$", "", files)
 
+files <- files[!grepl("^99", files)]
+files
+
 rm <- function(x) if (file.exists(x)) file.remove(x)
 rm_folder <- function(x) if (file.exists(x)) unlink(x, recursive = TRUE)
 purrr::walk(files, function(.x) {
