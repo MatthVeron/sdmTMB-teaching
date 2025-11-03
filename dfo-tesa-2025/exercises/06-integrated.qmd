@@ -11,7 +11,7 @@ execute:
 
 -   Gain exposure to combining survey data from two surveys with different capabilities
 -   Gain familiarity working with offsets
--   Gain exposure to working with spatially varying coefficients
+-   Gain exposure to working with spatially varying coefficients for catchability
 -   Gain exposure to working with count (longline) data
 -   Practice the common routine of generating an area-weighted index of abundance
 
