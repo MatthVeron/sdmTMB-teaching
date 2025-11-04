@@ -344,7 +344,7 @@ fit_pcod2
 The following is some yelloweye rockfish data from the hard bottom longline survey on the inside waters of Vancouver Island.
 
 ```{r}
-d <- readRDS(here::here("dfo-tesa-2023/data/hbll-inside-yelloweye.rds"))
+d <- readRDS(here::here("dfo-tesa-2025/data/hbll-inside-yelloweye.rds"))
 d_north <- dplyr::filter(d, survey == "HBLL INS N")
 d_north <- add_utm_columns(d_north)
 ```
