@@ -1,6 +1,6 @@
 # DFO TESA Workshop 2025
 
-November 4--6 2025
+November 4-6 2025
 
 ### sdmTMB:
 
