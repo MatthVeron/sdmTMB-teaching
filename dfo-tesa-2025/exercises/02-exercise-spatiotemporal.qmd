@@ -344,7 +344,7 @@ plot(g)
 Let's now predict on a grid that covers the entire survey (`wcvi_grid`).
 
 ```{r}
-wcvi_grid <- readRDS(here::here("dfo-tesa-2023/data/wcvi-grid.rds"))
+wcvi_grid <- readRDS(here::here("dfo-tesa-2025/data/wcvi-grid.rds"))
 head(wcvi_grid)
 wcvi_grid$log_depth <- log(wcvi_grid$depth)
 ```
