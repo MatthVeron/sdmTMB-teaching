@@ -1,5 +1,5 @@
 ---
-title: Software setup for model-based estimates of abundance from survey data
+title: "Software setup for model-based estimates of abundance from survey data"
 ---
 
 1. Install the following programs:
@@ -79,7 +79,7 @@ Again, you can ignore any warnings about Matrix/TMB versions if you see those.
 ## Other packages, including mgcv package for fitting GAMs:
 
 ```{r}
-pkgs <- c("dplyr", "ggplot2", "sf", "inlabru", "gratia", "visreg", "purrr")
-install.packages(pkgs)
-install.packages("mgcv", dependencies = TRUE)
+pkgs <- c("dplyr", "ggplot2", "sf","mgcv", "gratia", "visreg", "purrr") #"inlabru"
+install.packages(pkgs, dependencies = TRUE,
+                 repos = 'http://cran.us.r-project.org')
 ```
