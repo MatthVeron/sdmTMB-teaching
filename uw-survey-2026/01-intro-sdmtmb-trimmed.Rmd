@@ -45,7 +45,7 @@ An R package for spatially explicit predictive-process GLMMs (Generalized Linear
 
 * Provides spatial covariance statistics that can be useful (e.g. spatial scale of correlation)
 
-<img src="images/logo-sdmTMB.png" width="90px"/>
+<img src="images/logo-sdmTMB.png" width="180px"/>
 
 ---
 
@@ -786,10 +786,10 @@ ggplot(pred_gam_df, aes(X, Y, fill = pred_gam)) + geom_raster() +
 
 .xsmall[
 ```{r pcod-gam-index, echo=TRUE, eval=TRUE}
-sims <- gratia::fitted_samples(fit_gam, n=10, newdata=survey_grid, 
+sims <- gratia::fitted_samples(fit_gam, n=10, data=survey_grid, 
                                scale="response", seed=9)
-sims$year <- survey_grid$year[sims$row]
-sims$biomass <- sims$fitted * 4 # expand from density to biomass, given area
+sims$year <- survey_grid$year[sims$.row]
+sims$biomass <- sims$.fitted * 4 # expand from density to biomass, given area
 
 level <- 0.95 # specify probability for confidence interval
 
@@ -798,7 +798,7 @@ lwr_fn <- function(x) {as.numeric(quantile(x, probs = (1 - level) / 2))}
 upr_fn <- function(x) {as.numeric(quantile(x, probs = 1 - (1 - level) / 2))}
 
 sims_sum <-  sims %>% 
-  group_by(year,draw) %>% 
+  group_by(year,.draw) %>% 
   summarise_at("biomass", list(biomass = sum)) %>%
   group_by(year) %>%
   summarise_at("biomass", list(est = median, # could use mean
